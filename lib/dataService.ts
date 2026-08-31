@@ -99,7 +99,7 @@ export async function syncUserProfile(user: {
 }) {
   if (!supabase || !isSupabaseConfigured()) return;
   try {
-    await supabase.from('profiles').upsert(
+    const { error } = await supabase.from('profiles').upsert(
       {
         id: user.id,
         name: user.name,
@@ -109,8 +109,11 @@ export async function syncUserProfile(user: {
       },
       { onConflict: 'id' }
     );
+    if (error) {
+      console.error('Supabase Profiles Sync Error:', error);
+    }
   } catch (err) {
-    console.warn('Profile sync error:', err);
+    console.error('Profile sync exception:', err);
   }
 }
 
@@ -178,7 +181,6 @@ export async function getMembers(): Promise<User[]> {
           streakDays: 7,
         }));
 
-        // Merge real Supabase users with mock users so group stays populated
         const dbIds = new Set(dbMembers.map((m) => m.id));
         const extraMockUsers = MOCK_USERS.filter((m) => !dbIds.has(m.id));
         return [...dbMembers, ...extraMockUsers];
@@ -224,6 +226,10 @@ export async function getTodayActivity(userId: string): Promise<DailyRecord> {
         .eq('date', todayStr)
         .maybeSingle();
 
+      if (error) {
+        console.error('Supabase Fetch Today Error:', error);
+      }
+
       if (data && !error) {
         return mapRowToDailyRecord(data, userId, todayStr);
       }
@@ -235,12 +241,57 @@ export async function getTodayActivity(userId: string): Promise<DailyRecord> {
   return getDailyRecordSync(userId, todayStr);
 }
 
+// Full Save / Submit Daily Record to Supabase & Local Cache
+export async function saveDailyRecord(
+  record: DailyRecord,
+  userProfile?: { id: string; name: string; email: string; avatarUrl: string }
+): Promise<{ success: boolean; data?: DailyRecord; error?: string }> {
+  // Ensure profile is synced to Supabase first so user_id exists in profiles table
+  if (userProfile && supabase && isSupabaseConfigured()) {
+    await syncUserProfile(userProfile);
+  }
+
+  // Update local storage
+  const records = getStoredRecords();
+  const idx = records.findIndex((r) => r.userId === record.userId && r.date === record.date);
+  if (idx >= 0) records[idx] = record;
+  else records.push(record);
+  saveRecords(records);
+
+  // Sync to Supabase
+  if (supabase && isSupabaseConfigured()) {
+    try {
+      const rowPayload = mapDailyRecordToRow(record);
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .upsert(rowPayload, { onConflict: 'user_id,date' })
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.error('Supabase DB Save Error Details:', error);
+        return { success: false, error: error.message || 'Supabase RLS or DB error' };
+      }
+
+      if (data) {
+        return { success: true, data: mapRowToDailyRecord(data, record.userId, record.date) };
+      }
+    } catch (err: any) {
+      console.error('Supabase exception during save:', err);
+      return { success: false, error: err.message || 'Failed to save to Supabase' };
+    }
+  }
+
+  return { success: true, data: record };
+}
+
 // Update Prayer Status in Supabase with local fallback sync
 export async function updatePrayerStatus(
   userId: string,
   dateStr: string,
   prayer: PrayerName,
-  status: PrayerStatus
+  status: PrayerStatus,
+  userProfile?: { id: string; name: string; email: string; avatarUrl: string }
 ): Promise<DailyRecord> {
   const localTarget = getDailyRecordSync(userId, dateStr);
   const updatedPrayers = { ...localTarget.prayers, [prayer]: status };
@@ -255,30 +306,8 @@ export async function updatePrayerStatus(
     updatedAt: new Date().toISOString(),
   };
 
-  const records = getStoredRecords();
-  const idx = records.findIndex((r) => r.userId === userId && r.date === dateStr);
-  if (idx >= 0) records[idx] = updatedRecord;
-  else records.push(updatedRecord);
-  saveRecords(records);
-
-  try {
-    if (supabase && isSupabaseConfigured()) {
-      const rowPayload = mapDailyRecordToRow(updatedRecord);
-      const { data, error } = await supabase
-        .from('daily_activities')
-        .upsert(rowPayload, { onConflict: 'user_id,date' })
-        .select()
-        .maybeSingle();
-
-      if (data && !error) {
-        return mapRowToDailyRecord(data, userId, dateStr);
-      }
-    }
-  } catch (err) {
-    console.warn('Supabase upsert failed:', err);
-  }
-
-  return updatedRecord;
+  const res = await saveDailyRecord(updatedRecord, userProfile);
+  return res.data || updatedRecord;
 }
 
 // Update Habit Status in Supabase with local fallback sync
@@ -286,7 +315,8 @@ export async function updateHabitStatus(
   userId: string,
   dateStr: string,
   habit: keyof SpiritualHabits,
-  completed: boolean
+  completed: boolean,
+  userProfile?: { id: string; name: string; email: string; avatarUrl: string }
 ): Promise<DailyRecord> {
   const localTarget = getDailyRecordSync(userId, dateStr);
   const updatedHabits = { ...localTarget.habits, [habit]: completed };
@@ -301,30 +331,8 @@ export async function updateHabitStatus(
     updatedAt: new Date().toISOString(),
   };
 
-  const records = getStoredRecords();
-  const idx = records.findIndex((r) => r.userId === userId && r.date === dateStr);
-  if (idx >= 0) records[idx] = updatedRecord;
-  else records.push(updatedRecord);
-  saveRecords(records);
-
-  try {
-    if (supabase && isSupabaseConfigured()) {
-      const rowPayload = mapDailyRecordToRow(updatedRecord);
-      const { data, error } = await supabase
-        .from('daily_activities')
-        .upsert(rowPayload, { onConflict: 'user_id,date' })
-        .select()
-        .maybeSingle();
-
-      if (data && !error) {
-        return mapRowToDailyRecord(data, userId, dateStr);
-      }
-    }
-  } catch (err) {
-    console.warn('Supabase habit upsert failed:', err);
-  }
-
-  return updatedRecord;
+  const res = await saveDailyRecord(updatedRecord, userProfile);
+  return res.data || updatedRecord;
 }
 
 // Activity History from Supabase / Local
