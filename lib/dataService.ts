@@ -4,8 +4,21 @@ import { MOCK_USERS, generateInitialRecords, getFormattedDate, calculateCompleti
 
 export { getFormattedDate };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Clean and sanitize environment variables to prevent trailing slashes and quotes
+const getCleanSupabaseUrl = (): string => {
+  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  url = url.trim().replace(/^["']|["']$/g, '');
+  url = url.replace(/\/+$/, ''); // Strip trailing slashes
+  return url;
+};
+
+const getCleanSupabaseKey = (): string => {
+  let key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  return key.trim().replace(/^["']|["']$/g, '');
+};
+
+const supabaseUrl = getCleanSupabaseUrl();
+const supabaseAnonKey = getCleanSupabaseKey();
 
 const isSupabaseConfigured = (): boolean => {
   return (
