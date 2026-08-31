@@ -167,11 +167,11 @@ export async function getMembers(): Promise<User[]> {
   if (supabase && isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('profiles').select('*');
-      if (data && data.length > 0 && !error) {
+      if (data && !error && data.length > 0) {
         return data.map((p: Record<string, any>) => ({
           id: p.id,
-          name: p.name,
-          email: p.email,
+          name: p.name || 'Member',
+          email: p.email || '',
           avatarUrl: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
           role: (p.role as 'admin' | 'member') || 'member',
           joinedDate: p.created_at || '2026-01-01',
@@ -427,20 +427,41 @@ export async function getGroupAnalytics(): Promise<GroupAnalytics> {
   };
 
   const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const localRecords = getStoredRecords();
+  
+  // Query Supabase for past 7 days activities if configured
+  let groupDailyRecords: DailyRecord[] = [];
+  if (supabase && isSupabaseConfigured()) {
+    try {
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (data && !error) {
+        groupDailyRecords = data.map((r: Record<string, any>) => mapRowToDailyRecord(r, r.user_id, r.date));
+      }
+    } catch (err) {
+      console.warn('Failed to fetch group activities from Supabase:', err);
+    }
+  }
+
+  if (groupDailyRecords.length === 0) {
+    groupDailyRecords = getStoredRecords();
+  }
+
   const weeklyScores = [];
   for (let i = 6; i >= 0; i--) {
     const dStr = getFormattedDate(i);
     const dateObj = new Date(dStr);
     const dayName = daysOfWeek[(dateObj.getDay() + 6) % 7];
-    const dayRecs = localRecords.filter((r) => r.date === dStr);
+    const dayRecs = groupDailyRecords.filter((r) => r.date === dStr);
     const avg = Math.round(
       dayRecs.reduce((acc, r) => acc + r.completionRate, 0) / (dayRecs.length || 1)
     );
     weeklyScores.push({
       day: dayName,
       date: dStr,
-      completion: avg || 75,
+      completion: avg || 0,
     });
   }
 
