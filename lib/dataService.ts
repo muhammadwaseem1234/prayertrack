@@ -89,6 +89,31 @@ export function mapDailyRecordToRow(record: DailyRecord) {
   };
 }
 
+// Sync logged-in Clerk user profile to Supabase profiles table
+export async function syncUserProfile(user: {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string;
+  role?: string;
+}) {
+  if (!supabase || !isSupabaseConfigured()) return;
+  try {
+    await supabase.from('profiles').upsert(
+      {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatar_url: user.avatarUrl,
+        role: user.role || 'member',
+      },
+      { onConflict: 'id' }
+    );
+  } catch (err) {
+    console.warn('Profile sync error:', err);
+  }
+}
+
 // Local storage fallback handlers
 export function getStoredRecords(): DailyRecord[] {
   if (typeof window === 'undefined') {
@@ -134,7 +159,29 @@ export function getCurrentUser(): User {
   return MOCK_USERS.find((u) => u.id === currentId) || MOCK_USERS[0];
 }
 
-export function getMembers(): User[] {
+export function getMembersSync(): User[] {
+  return MOCK_USERS;
+}
+
+export async function getMembers(): Promise<User[]> {
+  if (supabase && isSupabaseConfigured()) {
+    try {
+      const { data, error } = await supabase.from('profiles').select('*');
+      if (data && data.length > 0 && !error) {
+        return data.map((p: Record<string, any>) => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          avatarUrl: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+          role: (p.role as 'admin' | 'member') || 'member',
+          joinedDate: p.created_at || '2026-01-01',
+          streakDays: 7,
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to fetch members from Supabase:', err);
+    }
+  }
   return MOCK_USERS;
 }
 
@@ -196,6 +243,8 @@ export async function updatePrayerStatus(
 
   const updatedRecord: DailyRecord = {
     ...localTarget,
+    userId,
+    date: dateStr,
     prayers: updatedPrayers,
     completionRate: newRate,
     updatedAt: new Date().toISOString(),
@@ -240,6 +289,8 @@ export async function updateHabitStatus(
 
   const updatedRecord: DailyRecord = {
     ...localTarget,
+    userId,
+    date: dateStr,
     habits: updatedHabits,
     completionRate: newRate,
     updatedAt: new Date().toISOString(),
@@ -296,8 +347,9 @@ export async function getActivityHistory(userId: string): Promise<DailyRecord[]>
 }
 
 // Member Stats for Admin View
-export async function getMemberStats(userId: string): Promise<MemberStats> {
-  const user = MOCK_USERS.find((u) => u.id === userId) || MOCK_USERS[0];
+export async function getMemberStats(userId: string, userOverride?: User): Promise<MemberStats> {
+  const members = await getMembers();
+  const user = userOverride || members.find((u) => u.id === userId) || MOCK_USERS.find((u) => u.id === userId) || MOCK_USERS[0];
   const history = await getActivityHistory(userId);
   const todayRecord = await getTodayActivity(userId);
 
@@ -323,19 +375,20 @@ export async function getMemberStats(userId: string): Promise<MemberStats> {
     habitsCompleted,
     weeklyAvg,
     monthlyAvg,
-    streakDays: user.streakDays,
+    streakDays: user.streakDays || 1,
     todayRecord,
   };
 }
 
 export async function getAllMembersStats(): Promise<MemberStats[]> {
-  return Promise.all(MOCK_USERS.map((u) => getMemberStats(u.id)));
+  const members = await getMembers();
+  return Promise.all(members.map((u) => getMemberStats(u.id, u)));
 }
 
 // Compute group aggregate analytics
 export async function getGroupAnalytics(): Promise<GroupAnalytics> {
   const allStats = await getAllMembersStats();
-  const totalMembers = MOCK_USERS.length;
+  const totalMembers = allStats.length || 1;
 
   const todayRecords = allStats.map((s) => s.todayRecord);
   const overallCompletion = Math.round(

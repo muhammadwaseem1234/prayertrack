@@ -1,24 +1,27 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { HistoryTable } from '../../components/history/HistoryTable';
 import { getCurrentUser, getActivityHistory } from '../../lib/dataService';
 import { DailyRecord } from '../../types';
 
 export default function HistoryPage() {
+  const { user: clerkUser, isLoaded } = useUser();
   const [history, setHistory] = useState<DailyRecord[]>([]);
   const [filterRange, setFilterRange] = useState<'30' | '14' | '7'>('30');
 
-  const currentUser = getCurrentUser();
+  const activeUserId = clerkUser ? clerkUser.id : getCurrentUser().id;
 
   useEffect(() => {
     async function loadHistory() {
-      const data = await getActivityHistory(currentUser.id);
+      if (!isLoaded) return;
+      const data = await getActivityHistory(activeUserId);
       setHistory(data);
     }
     loadHistory();
-  }, [currentUser.id]);
+  }, [activeUserId, isLoaded]);
 
   const filteredHistory = history.slice(0, parseInt(filterRange, 10));
 

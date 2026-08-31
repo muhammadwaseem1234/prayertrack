@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { getCurrentUser, getActivityHistory, getMemberStats } from '../../lib/dataService';
@@ -8,22 +9,24 @@ import { MemberStats, DailyRecord } from '../../types';
 import { Flame, CheckCircle2, TrendingUp } from 'lucide-react';
 
 export default function AnalyticsPage() {
+  const { user: clerkUser, isLoaded } = useUser();
   const [stats, setStats] = useState<MemberStats | null>(null);
   const [history, setHistory] = useState<DailyRecord[]>([]);
 
-  const currentUser = getCurrentUser();
+  const activeUserId = clerkUser ? clerkUser.id : getCurrentUser().id;
 
   useEffect(() => {
     async function loadAnalytics() {
+      if (!isLoaded) return;
       const [statsData, historyData] = await Promise.all([
-        getMemberStats(currentUser.id),
-        getActivityHistory(currentUser.id),
+        getMemberStats(activeUserId),
+        getActivityHistory(activeUserId),
       ]);
       setStats(statsData);
       setHistory(historyData);
     }
     loadAnalytics();
-  }, [currentUser.id]);
+  }, [activeUserId, isLoaded]);
 
   if (!stats) return null;
 

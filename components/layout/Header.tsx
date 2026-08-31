@@ -3,13 +3,23 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Sparkles, UserCheck } from 'lucide-react';
-import { getCurrentUser, setCurrentUserId, getMembers } from '../../lib/dataService';
+import { useUser, UserButton } from '@clerk/nextjs';
+import { Calendar, Sparkles } from 'lucide-react';
+import { getCurrentUser, setCurrentUserId, getMembersSync } from '../../lib/dataService';
+import { User } from '../../types';
 
 export const Header: React.FC = () => {
   const pathname = usePathname();
-  const currentUser = getCurrentUser();
-  const members = getMembers();
+  const { user: clerkUser } = useUser();
+  const mockUser = getCurrentUser();
+  const members: User[] = getMembersSync();
+
+  const activeUser = clerkUser
+    ? {
+        name: clerkUser.fullName || clerkUser.username || 'My Profile',
+        avatarUrl: clerkUser.imageUrl,
+      }
+    : mockUser;
 
   // Format today date nicely
   const todayFormatted = new Date().toLocaleDateString('en-US', {
@@ -61,29 +71,35 @@ export const Header: React.FC = () => {
           <span>{todayFormatted}</span>
         </div>
 
-        {/* Mobile Demo Persona Select */}
-        <div className="md:hidden">
-          <select
-            value={currentUser.id}
-            onChange={(e) => handleSwitchUser(e.target.value)}
-            className="bg-gray-100 border border-gray-200 rounded-lg text-xs py-1 px-2 text-gray-800 focus:outline-none"
-          >
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name.split(' ')[0]} ({m.role})
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Mobile Demo Persona Select if not Clerk logged in */}
+        {!clerkUser && (
+          <div className="md:hidden">
+            <select
+              value={mockUser.id}
+              onChange={(e) => handleSwitchUser(e.target.value)}
+              className="bg-gray-100 border border-gray-200 rounded-lg text-xs py-1 px-2 text-gray-800 focus:outline-none"
+            >
+              {members.map((m: User) => (
+                <option key={m.id} value={m.id}>
+                  {m.name.split(' ')[0]} ({m.role})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* User avatar indicator */}
         <div className="hidden md:flex items-center gap-2 pl-2 border-l border-gray-200">
-          <img
-            src={currentUser.avatarUrl}
-            alt={currentUser.name}
-            className="w-7 h-7 rounded-full object-cover border border-gray-200"
-          />
-          <span className="text-xs font-semibold text-gray-800">{currentUser.name}</span>
+          {clerkUser ? (
+            <UserButton />
+          ) : (
+            <img
+              src={activeUser.avatarUrl}
+              alt={activeUser.name}
+              className="w-7 h-7 rounded-full object-cover border border-gray-200"
+            />
+          )}
+          <span className="text-xs font-semibold text-gray-800">{activeUser.name}</span>
         </div>
       </div>
     </header>

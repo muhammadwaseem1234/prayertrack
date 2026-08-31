@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { PrayerTrackerCard } from '../../components/dashboard/PrayerTrackerCard';
 import { SpiritualHabitsCard } from '../../components/dashboard/SpiritualHabitsCard';
@@ -14,26 +15,29 @@ import {
 import { DailyRecord, PrayerName, PrayerStatus, SpiritualHabits } from '../../types';
 
 export default function TodayPage() {
+  const { user: clerkUser, isLoaded } = useUser();
   const [record, setRecord] = useState<DailyRecord | null>(null);
-  const currentUser = getCurrentUser();
+
+  const activeUserId = clerkUser ? clerkUser.id : getCurrentUser().id;
 
   useEffect(() => {
     async function loadToday() {
-      const data = await getTodayActivity(currentUser.id);
+      if (!isLoaded) return;
+      const data = await getTodayActivity(activeUserId);
       setRecord(data);
     }
     loadToday();
-  }, [currentUser.id]);
+  }, [activeUserId, isLoaded]);
 
   const handleUpdatePrayer = async (prayer: PrayerName, status: PrayerStatus) => {
     if (!record) return;
-    const updated = await updatePrayerStatus(currentUser.id, record.date, prayer, status);
+    const updated = await updatePrayerStatus(activeUserId, record.date, prayer, status);
     if (updated) setRecord({ ...updated });
   };
 
   const handleUpdateHabit = async (habit: keyof SpiritualHabits, completed: boolean) => {
     if (!record) return;
-    const updated = await updateHabitStatus(currentUser.id, record.date, habit, completed);
+    const updated = await updateHabitStatus(activeUserId, record.date, habit, completed);
     if (updated) setRecord({ ...updated });
   };
 

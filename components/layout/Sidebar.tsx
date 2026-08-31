@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import { useUser, UserButton } from '@clerk/nextjs';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -11,23 +12,43 @@ import {
   Users,
   ShieldCheck,
   UserCheck,
-  Settings,
   LogOut,
   Sparkles,
 } from 'lucide-react';
-import { getCurrentUser, setCurrentUserId, getMembers } from '../../lib/dataService';
+import { getCurrentUser, setCurrentUserId, syncUserProfile } from '../../lib/dataService';
 
 export const Sidebar: React.FC = () => {
   const pathname = usePathname();
-  const router = useRouter();
-  const currentUser = getCurrentUser();
-  const members = getMembers();
+  const { user: clerkUser, isLoaded } = useUser();
+  const mockUser = getCurrentUser();
 
-  const handleSwitchUser = (userId: string) => {
-    setCurrentUserId(userId);
-    // Refresh page to apply user state
-    window.location.reload();
-  };
+  // Sync Clerk authenticated user to Supabase profile table when signed in
+  useEffect(() => {
+    if (clerkUser) {
+      const email = clerkUser.primaryEmailAddress?.emailAddress || '';
+      const name = clerkUser.fullName || clerkUser.username || 'Member';
+      const avatarUrl = clerkUser.imageUrl;
+      const role = (clerkUser.publicMetadata?.role as string) || 'member';
+
+      syncUserProfile({
+        id: clerkUser.id,
+        name,
+        email,
+        avatarUrl,
+        role,
+      });
+    }
+  }, [clerkUser]);
+
+  const activeUser = clerkUser
+    ? {
+        id: clerkUser.id,
+        name: clerkUser.fullName || clerkUser.username || 'Your Profile',
+        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+        avatarUrl: clerkUser.imageUrl,
+        role: ((clerkUser.publicMetadata?.role as string) || 'member') as 'admin' | 'member',
+      }
+    : mockUser;
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -96,7 +117,7 @@ export const Sidebar: React.FC = () => {
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
               Administration
             </p>
-            {currentUser.role === 'admin' ? (
+            {activeUser.role === 'admin' ? (
               <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-emerald-100 text-emerald-800 rounded">
                 Admin
               </span>
@@ -127,52 +148,39 @@ export const Sidebar: React.FC = () => {
             })}
           </nav>
         </div>
-
-        {/* Demo Switcher Box */}
-        <div className="bg-gray-50/80 p-3 rounded-2xl border border-gray-200/80 text-xs">
-          <div className="flex items-center gap-1.5 text-gray-500 font-medium mb-2">
-            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Demo Switch Persona:</span>
-          </div>
-          <select
-            value={currentUser.id}
-            onChange={(e) => handleSwitchUser(e.target.value)}
-            className="w-full bg-white border border-gray-200 rounded-lg text-xs py-1.5 px-2 text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-gray-400 cursor-pointer"
-          >
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name} ({m.role})
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {/* Footer User Info */}
       <div className="p-4 border-t border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img
-            src={currentUser.avatarUrl}
-            alt={currentUser.name}
-            className="w-9 h-9 rounded-full object-cover border border-gray-200"
-          />
-          <div className="leading-tight">
-            <p className="text-sm font-medium text-gray-900 truncate max-w-[110px]">
-              {currentUser.name}
+        <div className="flex items-center gap-3 min-w-0">
+          {clerkUser ? (
+            <UserButton />
+          ) : (
+            <img
+              src={activeUser.avatarUrl}
+              alt={activeUser.name}
+              className="w-9 h-9 rounded-full object-cover border border-gray-200"
+            />
+          )}
+          <div className="leading-tight min-w-0 flex-1">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {activeUser.name}
             </p>
-            <p className="text-[11px] text-gray-400 truncate max-w-[110px]">
-              {currentUser.email}
+            <p className="text-[11px] text-gray-400 truncate">
+              {activeUser.email}
             </p>
           </div>
         </div>
 
-        <Link
-          href="/"
-          title="Logout to landing page"
-          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-        </Link>
+        {!clerkUser && (
+          <Link
+            href="/"
+            title="Logout"
+            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </Link>
+        )}
       </div>
     </aside>
   );

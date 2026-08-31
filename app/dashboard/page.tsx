@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { DailyProgressCard } from '../../components/dashboard/DailyProgressCard';
 import { PrayerTrackerCard } from '../../components/dashboard/PrayerTrackerCard';
@@ -17,42 +18,47 @@ import { DailyRecord, MemberStats, PrayerName, PrayerStatus, SpiritualHabits } f
 import { Skeleton } from '../../components/ui/Skeleton';
 
 export default function DashboardPage() {
+  const { user: clerkUser, isLoaded } = useUser();
   const [record, setRecord] = useState<DailyRecord | null>(null);
   const [memberStats, setMemberStats] = useState<MemberStats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const currentUser = getCurrentUser();
+  const activeUserId = clerkUser ? clerkUser.id : getCurrentUser().id;
+  const activeUserName = clerkUser
+    ? clerkUser.firstName || clerkUser.fullName || 'User'
+    : getCurrentUser().name.split(' ')[0];
 
   useEffect(() => {
     async function loadData() {
+      if (!isLoaded) return;
       setLoading(true);
       const [todayData, statsData] = await Promise.all([
-        getTodayActivity(currentUser.id),
-        getMemberStats(currentUser.id),
+        getTodayActivity(activeUserId),
+        getMemberStats(activeUserId),
       ]);
       setRecord(todayData);
       setMemberStats(statsData);
       setLoading(false);
     }
     loadData();
-  }, [currentUser.id]);
+  }, [activeUserId, isLoaded]);
 
   const handleUpdatePrayer = async (prayer: PrayerName, status: PrayerStatus) => {
     if (!record) return;
-    const updated = await updatePrayerStatus(currentUser.id, record.date, prayer, status);
+    const updated = await updatePrayerStatus(activeUserId, record.date, prayer, status);
     if (updated) {
       setRecord({ ...updated });
-      const statsData = await getMemberStats(currentUser.id);
+      const statsData = await getMemberStats(activeUserId);
       setMemberStats(statsData);
     }
   };
 
   const handleUpdateHabit = async (habit: keyof SpiritualHabits, completed: boolean) => {
     if (!record) return;
-    const updated = await updateHabitStatus(currentUser.id, record.date, habit, completed);
+    const updated = await updateHabitStatus(activeUserId, record.date, habit, completed);
     if (updated) {
       setRecord({ ...updated });
-      const statsData = await getMemberStats(currentUser.id);
+      const statsData = await getMemberStats(activeUserId);
       setMemberStats(statsData);
     }
   };
@@ -75,7 +81,7 @@ export default function DashboardPage() {
         {/* User Greeting */}
         <div className="mb-2">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Good evening, {currentUser.name.split(' ')[0]}.
+            Good evening, {activeUserName}.
           </h1>
           <p className="text-sm text-gray-500 font-medium mt-1">
             Keep your day consistent, one prayer at a time.
