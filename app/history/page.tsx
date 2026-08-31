@@ -5,8 +5,6 @@ import { AppLayout } from '../../components/layout/AppLayout';
 import { HistoryTable } from '../../components/history/HistoryTable';
 import { getCurrentUser, getActivityHistory } from '../../lib/dataService';
 import { DailyRecord } from '../../types';
-import { Calendar, Filter, Download } from 'lucide-react';
-import { Button } from '../../components/ui/Button';
 
 export default function HistoryPage() {
   const [history, setHistory] = useState<DailyRecord[]>([]);
@@ -15,8 +13,11 @@ export default function HistoryPage() {
   const currentUser = getCurrentUser();
 
   useEffect(() => {
-    const data = getActivityHistory(currentUser.id);
-    setHistory(data);
+    async function loadHistory() {
+      const data = await getActivityHistory(currentUser.id);
+      setHistory(data);
+    }
+    loadHistory();
   }, [currentUser.id]);
 
   const filteredHistory = history.slice(0, parseInt(filterRange, 10));

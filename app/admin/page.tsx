@@ -6,7 +6,7 @@ import { AdminOverview } from '../../components/admin/AdminOverview';
 import { MembersTable } from '../../components/admin/MembersTable';
 import { getGroupAnalytics, getAllMembersStats } from '../../lib/dataService';
 import { GroupAnalytics, MemberStats } from '../../types';
-import { ShieldCheck, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 export default function AdminPage() {
@@ -14,8 +14,15 @@ export default function AdminPage() {
   const [membersStats, setMembersStats] = useState<MemberStats[]>([]);
 
   useEffect(() => {
-    setAnalytics(getGroupAnalytics());
-    setMembersStats(getAllMembersStats());
+    async function loadAdminData() {
+      const [analyticsData, statsData] = await Promise.all([
+        getGroupAnalytics(),
+        getAllMembersStats(),
+      ]);
+      setAnalytics(analyticsData);
+      setMembersStats(statsData);
+    }
+    loadAdminData();
   }, []);
 
   if (!analytics) return null;

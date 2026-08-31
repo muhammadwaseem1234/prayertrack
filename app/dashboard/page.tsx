@@ -13,34 +13,51 @@ import {
   updateHabitStatus,
   getMemberStats,
 } from '../../lib/dataService';
-import { DailyRecord, PrayerName, PrayerStatus, SpiritualHabits } from '../../types';
+import { DailyRecord, MemberStats, PrayerName, PrayerStatus, SpiritualHabits } from '../../types';
 import { Skeleton } from '../../components/ui/Skeleton';
 
 export default function DashboardPage() {
   const [record, setRecord] = useState<DailyRecord | null>(null);
+  const [memberStats, setMemberStats] = useState<MemberStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const currentUser = getCurrentUser();
 
   useEffect(() => {
-    const data = getTodayActivity(currentUser.id);
-    setRecord(data);
-    setLoading(false);
+    async function loadData() {
+      setLoading(true);
+      const [todayData, statsData] = await Promise.all([
+        getTodayActivity(currentUser.id),
+        getMemberStats(currentUser.id),
+      ]);
+      setRecord(todayData);
+      setMemberStats(statsData);
+      setLoading(false);
+    }
+    loadData();
   }, [currentUser.id]);
 
-  const handleUpdatePrayer = (prayer: PrayerName, status: PrayerStatus) => {
+  const handleUpdatePrayer = async (prayer: PrayerName, status: PrayerStatus) => {
     if (!record) return;
-    const updated = updatePrayerStatus(currentUser.id, record.date, prayer, status);
-    setRecord({ ...updated });
+    const updated = await updatePrayerStatus(currentUser.id, record.date, prayer, status);
+    if (updated) {
+      setRecord({ ...updated });
+      const statsData = await getMemberStats(currentUser.id);
+      setMemberStats(statsData);
+    }
   };
 
-  const handleUpdateHabit = (habit: keyof SpiritualHabits, completed: boolean) => {
+  const handleUpdateHabit = async (habit: keyof SpiritualHabits, completed: boolean) => {
     if (!record) return;
-    const updated = updateHabitStatus(currentUser.id, record.date, habit, completed);
-    setRecord({ ...updated });
+    const updated = await updateHabitStatus(currentUser.id, record.date, habit, completed);
+    if (updated) {
+      setRecord({ ...updated });
+      const statsData = await getMemberStats(currentUser.id);
+      setMemberStats(statsData);
+    }
   };
 
-  if (loading || !record) {
+  if (loading || !record || !memberStats) {
     return (
       <AppLayout>
         <div className="space-y-6">
@@ -51,8 +68,6 @@ export default function DashboardPage() {
       </AppLayout>
     );
   }
-
-  const memberStats = getMemberStats(currentUser.id);
 
   return (
     <AppLayout>

@@ -10,7 +10,11 @@ export default function AdminMembersPage() {
   const [membersStats, setMembersStats] = useState<MemberStats[]>([]);
 
   useEffect(() => {
-    setMembersStats(getAllMembersStats());
+    async function loadMembers() {
+      const stats = await getAllMembersStats();
+      setMembersStats(stats);
+    }
+    loadMembers();
   }, []);
 
   return (

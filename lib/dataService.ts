@@ -1,17 +1,100 @@
+import { createClient } from '@supabase/supabase-js';
 import { User, DailyRecord, MemberStats, GroupAnalytics, PrayerStatus, PrayerName, SpiritualHabits } from '../types';
 import { MOCK_USERS, generateInitialRecords, getFormattedDate, calculateCompletionRate } from './mockData';
 
 export { getFormattedDate };
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+const isSupabaseConfigured = (): boolean => {
+  return (
+    typeof supabaseUrl === 'string' &&
+    supabaseUrl.startsWith('http') &&
+    !supabaseUrl.includes('your-supabase-project') &&
+    typeof supabaseAnonKey === 'string' &&
+    supabaseAnonKey.length > 20
+  );
+};
+
+export const supabase = isSupabaseConfigured()
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : (null as any);
+
 const RECORDS_STORAGE_KEY = 'prayertrack_daily_records_v1';
 const CURRENT_USER_KEY = 'prayertrack_current_user_id';
 
-// Initialize or fetch records from LocalStorage / memory
+// Helper to map DB row to DailyRecord
+export function mapRowToDailyRecord(row: any, fallbackUserId: string = 'u1', fallbackDate: string = getFormattedDate(0)): DailyRecord {
+  if (!row) {
+    return {
+      id: `rec_${fallbackUserId}_${fallbackDate}`,
+      userId: fallbackUserId,
+      date: fallbackDate,
+      prayers: { fajr: 'no', dhuhr: 'no', asr: 'no', maghrib: 'no', isha: 'no' },
+      habits: { quran: false, morningAdhkar: false, eveningAdhkar: false, quranMeaning: false },
+      completionRate: 0,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const prayers = {
+    fajr: (row.fajr as PrayerStatus) || 'no',
+    dhuhr: (row.dhuhr as PrayerStatus) || 'no',
+    asr: (row.asr as PrayerStatus) || 'no',
+    maghrib: (row.maghrib as PrayerStatus) || 'no',
+    isha: (row.isha as PrayerStatus) || 'no',
+  };
+
+  const habits = {
+    quran: !!row.quran,
+    morningAdhkar: !!row.morning_adhkar,
+    eveningAdhkar: !!row.evening_adhkar,
+    quranMeaning: !!row.quran_meaning,
+  };
+
+  const completionRate = row.completion_rate !== undefined && row.completion_rate !== null
+    ? row.completion_rate
+    : calculateCompletionRate(prayers, habits);
+
+  return {
+    id: row.id || `rec_${row.user_id}_${row.date}`,
+    userId: row.user_id || fallbackUserId,
+    date: row.date || fallbackDate,
+    prayers,
+    habits,
+    notes: row.notes,
+    completionRate,
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+// Helper to convert DailyRecord into Supabase DB row format
+export function mapDailyRecordToRow(record: DailyRecord) {
+  return {
+    user_id: record.userId,
+    date: record.date,
+    fajr: record.prayers.fajr,
+    dhuhr: record.prayers.dhuhr,
+    asr: record.prayers.asr,
+    maghrib: record.prayers.maghrib,
+    isha: record.prayers.isha,
+    quran: record.habits.quran,
+    morning_adhkar: record.habits.morningAdhkar,
+    evening_adhkar: record.habits.eveningAdhkar,
+    quran_meaning: record.habits.quranMeaning,
+    completion_rate: record.completionRate,
+    notes: record.notes,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// Local storage fallback handlers
 export function getStoredRecords(): DailyRecord[] {
   if (typeof window === 'undefined') {
     return generateInitialRecords();
   }
-  
+
   const raw = localStorage.getItem(RECORDS_STORAGE_KEY);
   if (!raw) {
     const initial = generateInitialRecords();
@@ -22,7 +105,6 @@ export function getStoredRecords(): DailyRecord[] {
   try {
     return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to parse stored records', err);
     const initial = generateInitialRecords();
     localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(initial));
     return initial;
@@ -35,7 +117,7 @@ export function saveRecords(records: DailyRecord[]): void {
   }
 }
 
-// Current User selection (Waseem or Admin)
+// User selection
 export function getCurrentUserId(): string {
   if (typeof window === 'undefined') return 'u1';
   return localStorage.getItem(CURRENT_USER_KEY) || 'u1';
@@ -56,13 +138,12 @@ export function getMembers(): User[] {
   return MOCK_USERS;
 }
 
-// Get user record for specific date
-export function getDailyRecord(userId: string, dateStr: string = getFormattedDate(0)): DailyRecord {
+// Synchronous fallback helper for local state
+export function getDailyRecordSync(userId: string, dateStr: string = getFormattedDate(0)): DailyRecord {
   const records = getStoredRecords();
   let record = records.find((r) => r.userId === userId && r.date === dateStr);
 
   if (!record) {
-    // Create new blank record for today if missing
     record = {
       id: `rec_${userId}_${dateStr}`,
       userId,
@@ -79,106 +160,158 @@ export function getDailyRecord(userId: string, dateStr: string = getFormattedDat
   return record;
 }
 
-export function getTodayActivity(userId: string): DailyRecord {
-  return getDailyRecord(userId, getFormattedDate(0));
+// Fetch today activity from Supabase with graceful fallback
+export async function getTodayActivity(userId: string): Promise<DailyRecord> {
+  const todayStr = getFormattedDate(0);
+  try {
+    if (supabase && isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', todayStr)
+        .maybeSingle();
+
+      if (data && !error) {
+        return mapRowToDailyRecord(data, userId, todayStr);
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase fetch failed, using local records:', err);
+  }
+
+  return getDailyRecordSync(userId, todayStr);
 }
 
-export function getActivityHistory(userId: string): DailyRecord[] {
+// Update Prayer Status in Supabase with local fallback sync
+export async function updatePrayerStatus(
+  userId: string,
+  dateStr: string,
+  prayer: PrayerName,
+  status: PrayerStatus
+): Promise<DailyRecord> {
+  const localTarget = getDailyRecordSync(userId, dateStr);
+  const updatedPrayers = { ...localTarget.prayers, [prayer]: status };
+  const newRate = calculateCompletionRate(updatedPrayers, localTarget.habits);
+
+  const updatedRecord: DailyRecord = {
+    ...localTarget,
+    prayers: updatedPrayers,
+    completionRate: newRate,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const records = getStoredRecords();
+  const idx = records.findIndex((r) => r.userId === userId && r.date === dateStr);
+  if (idx >= 0) records[idx] = updatedRecord;
+  else records.push(updatedRecord);
+  saveRecords(records);
+
+  try {
+    if (supabase && isSupabaseConfigured()) {
+      const rowPayload = mapDailyRecordToRow(updatedRecord);
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .upsert(rowPayload, { onConflict: 'user_id,date' })
+        .select()
+        .maybeSingle();
+
+      if (data && !error) {
+        return mapRowToDailyRecord(data, userId, dateStr);
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase upsert failed:', err);
+  }
+
+  return updatedRecord;
+}
+
+// Update Habit Status in Supabase with local fallback sync
+export async function updateHabitStatus(
+  userId: string,
+  dateStr: string,
+  habit: keyof SpiritualHabits,
+  completed: boolean
+): Promise<DailyRecord> {
+  const localTarget = getDailyRecordSync(userId, dateStr);
+  const updatedHabits = { ...localTarget.habits, [habit]: completed };
+  const newRate = calculateCompletionRate(localTarget.prayers, updatedHabits);
+
+  const updatedRecord: DailyRecord = {
+    ...localTarget,
+    habits: updatedHabits,
+    completionRate: newRate,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const records = getStoredRecords();
+  const idx = records.findIndex((r) => r.userId === userId && r.date === dateStr);
+  if (idx >= 0) records[idx] = updatedRecord;
+  else records.push(updatedRecord);
+  saveRecords(records);
+
+  try {
+    if (supabase && isSupabaseConfigured()) {
+      const rowPayload = mapDailyRecordToRow(updatedRecord);
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .upsert(rowPayload, { onConflict: 'user_id,date' })
+        .select()
+        .maybeSingle();
+
+      if (data && !error) {
+        return mapRowToDailyRecord(data, userId, dateStr);
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase habit upsert failed:', err);
+  }
+
+  return updatedRecord;
+}
+
+// Activity History from Supabase / Local
+export async function getActivityHistory(userId: string): Promise<DailyRecord[]> {
+  try {
+    if (supabase && isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('daily_activities')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false });
+
+      if (data && data.length > 0 && !error) {
+        return data.map((r: Record<string, any>) => mapRowToDailyRecord(r, userId, r.date));
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase history fetch failed:', err);
+  }
+
   const records = getStoredRecords();
   return records
     .filter((r) => r.userId === userId)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
-export function updatePrayerStatus(
-  userId: string,
-  dateStr: string,
-  prayer: PrayerName,
-  status: PrayerStatus
-): DailyRecord {
-  const records = getStoredRecords();
-  const index = records.findIndex((r) => r.userId === userId && r.date === dateStr);
-  const target = index >= 0 ? records[index] : getDailyRecord(userId, dateStr);
-
-  const updatedPrayers = {
-    ...target.prayers,
-    [prayer]: status,
-  };
-
-  const newCompletionRate = calculateCompletionRate(updatedPrayers, target.habits);
-
-  const updatedRecord: DailyRecord = {
-    ...target,
-    prayers: updatedPrayers,
-    completionRate: newCompletionRate,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (index >= 0) {
-    records[index] = updatedRecord;
-  } else {
-    records.push(updatedRecord);
-  }
-
-  saveRecords(records);
-  return updatedRecord;
-}
-
-export function updateHabitStatus(
-  userId: string,
-  dateStr: string,
-  habit: keyof SpiritualHabits,
-  completed: boolean
-): DailyRecord {
-  const records = getStoredRecords();
-  const index = records.findIndex((r) => r.userId === userId && r.date === dateStr);
-  const target = index >= 0 ? records[index] : getDailyRecord(userId, dateStr);
-
-  const updatedHabits = {
-    ...target.habits,
-    [habit]: completed,
-  };
-
-  const newCompletionRate = calculateCompletionRate(target.prayers, updatedHabits);
-
-  const updatedRecord: DailyRecord = {
-    ...target,
-    habits: updatedHabits,
-    completionRate: newCompletionRate,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (index >= 0) {
-    records[index] = updatedRecord;
-  } else {
-    records.push(updatedRecord);
-  }
-
-  saveRecords(records);
-  return updatedRecord;
-}
-
-// Calculate individual member stats for Admin view
-export function getMemberStats(userId: string): MemberStats {
+// Member Stats for Admin View
+export async function getMemberStats(userId: string): Promise<MemberStats> {
   const user = MOCK_USERS.find((u) => u.id === userId) || MOCK_USERS[0];
-  const history = getActivityHistory(userId);
-  const todayRecord = getTodayActivity(userId);
+  const history = await getActivityHistory(userId);
+  const todayRecord = await getTodayActivity(userId);
 
-  // Count completed prayers today
   const prayersCompleted = Object.values(todayRecord.prayers).filter(
     (s) => s === 'yes' || s === 'jamaah'
   ).length;
 
-  // Count habits completed today
   const habitsCompleted = Object.values(todayRecord.habits).filter(Boolean).length;
 
-  // Weekly average (last 7 days)
   const last7 = history.slice(0, 7);
   const weeklyAvg = Math.round(
     last7.reduce((acc, r) => acc + r.completionRate, 0) / (last7.length || 1)
   );
 
-  // Monthly average (last 30 days)
   const monthlyAvg = Math.round(
     history.reduce((acc, r) => acc + r.completionRate, 0) / (history.length || 1)
   );
@@ -195,24 +328,20 @@ export function getMemberStats(userId: string): MemberStats {
   };
 }
 
-export function getAllMembersStats(): MemberStats[] {
-  return MOCK_USERS.map((u) => getMemberStats(u.id));
+export async function getAllMembersStats(): Promise<MemberStats[]> {
+  return Promise.all(MOCK_USERS.map((u) => getMemberStats(u.id)));
 }
 
 // Compute group aggregate analytics
-export function getGroupAnalytics(): GroupAnalytics {
-  const records = getStoredRecords();
-  const todayStr = getFormattedDate(0);
-  const todayRecords = records.filter((r) => r.date === todayStr);
-
+export async function getGroupAnalytics(): Promise<GroupAnalytics> {
+  const allStats = await getAllMembersStats();
   const totalMembers = MOCK_USERS.length;
 
-  // Overall today completion
+  const todayRecords = allStats.map((s) => s.todayRecord);
   const overallCompletion = Math.round(
     todayRecords.reduce((acc, r) => acc + r.completionRate, 0) / (todayRecords.length || 1)
   );
 
-  // Prayer percentages
   const prayerCounts = { fajr: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 };
   todayRecords.forEach((r) => {
     (Object.keys(prayerCounts) as PrayerName[]).forEach((p) => {
@@ -230,7 +359,6 @@ export function getGroupAnalytics(): GroupAnalytics {
     isha: Math.round((prayerCounts.isha / totalMembers) * 100),
   };
 
-  // Habit percentages
   const habitCounts = { quran: 0, morningAdhkar: 0, eveningAdhkar: 0, quranMeaning: 0 };
   todayRecords.forEach((r) => {
     (Object.keys(habitCounts) as (keyof SpiritualHabits)[]).forEach((h) => {
@@ -245,14 +373,14 @@ export function getGroupAnalytics(): GroupAnalytics {
     quranMeaning: Math.round((habitCounts.quranMeaning / totalMembers) * 100),
   };
 
-  // 7-day weekly scores across group
   const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const localRecords = getStoredRecords();
   const weeklyScores = [];
   for (let i = 6; i >= 0; i--) {
     const dStr = getFormattedDate(i);
     const dateObj = new Date(dStr);
     const dayName = daysOfWeek[(dateObj.getDay() + 6) % 7];
-    const dayRecs = records.filter((r) => r.date === dStr);
+    const dayRecs = localRecords.filter((r) => r.date === dStr);
     const avg = Math.round(
       dayRecs.reduce((acc, r) => acc + r.completionRate, 0) / (dayRecs.length || 1)
     );

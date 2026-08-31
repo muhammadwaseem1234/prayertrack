@@ -10,7 +10,11 @@ export default function AdminAnalyticsPage() {
   const [analytics, setAnalytics] = useState<GroupAnalytics | null>(null);
 
   useEffect(() => {
-    setAnalytics(getGroupAnalytics());
+    async function loadAnalytics() {
+      const data = await getGroupAnalytics();
+      setAnalytics(data);
+    }
+    loadAnalytics();
   }, []);
 
   if (!analytics) return null;

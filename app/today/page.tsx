@@ -18,19 +18,23 @@ export default function TodayPage() {
   const currentUser = getCurrentUser();
 
   useEffect(() => {
-    setRecord(getTodayActivity(currentUser.id));
+    async function loadToday() {
+      const data = await getTodayActivity(currentUser.id);
+      setRecord(data);
+    }
+    loadToday();
   }, [currentUser.id]);
 
-  const handleUpdatePrayer = (prayer: PrayerName, status: PrayerStatus) => {
+  const handleUpdatePrayer = async (prayer: PrayerName, status: PrayerStatus) => {
     if (!record) return;
-    const updated = updatePrayerStatus(currentUser.id, record.date, prayer, status);
-    setRecord({ ...updated });
+    const updated = await updatePrayerStatus(currentUser.id, record.date, prayer, status);
+    if (updated) setRecord({ ...updated });
   };
 
-  const handleUpdateHabit = (habit: keyof SpiritualHabits, completed: boolean) => {
+  const handleUpdateHabit = async (habit: keyof SpiritualHabits, completed: boolean) => {
     if (!record) return;
-    const updated = updateHabitStatus(currentUser.id, record.date, habit, completed);
-    setRecord({ ...updated });
+    const updated = await updateHabitStatus(currentUser.id, record.date, habit, completed);
+    if (updated) setRecord({ ...updated });
   };
 
   if (!record) return null;

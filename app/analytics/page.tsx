@@ -5,7 +5,7 @@ import { AppLayout } from '../../components/layout/AppLayout';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { getCurrentUser, getActivityHistory, getMemberStats } from '../../lib/dataService';
 import { MemberStats, DailyRecord } from '../../types';
-import { Flame, CheckCircle2, TrendingUp, BookOpen, Sun, Moon, Sparkles } from 'lucide-react';
+import { Flame, CheckCircle2, TrendingUp } from 'lucide-react';
 
 export default function AnalyticsPage() {
   const [stats, setStats] = useState<MemberStats | null>(null);
@@ -14,8 +14,15 @@ export default function AnalyticsPage() {
   const currentUser = getCurrentUser();
 
   useEffect(() => {
-    setStats(getMemberStats(currentUser.id));
-    setHistory(getActivityHistory(currentUser.id));
+    async function loadAnalytics() {
+      const [statsData, historyData] = await Promise.all([
+        getMemberStats(currentUser.id),
+        getActivityHistory(currentUser.id),
+      ]);
+      setStats(statsData);
+      setHistory(historyData);
+    }
+    loadAnalytics();
   }, [currentUser.id]);
 
   if (!stats) return null;

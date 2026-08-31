@@ -20,11 +20,19 @@ export default function MemberDetailPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (memberId) {
-      setStats(getMemberStats(memberId));
-      setHistory(getActivityHistory(memberId));
-      setLoading(false);
+    async function loadMemberDetail() {
+      if (memberId) {
+        setLoading(true);
+        const [statsData, historyData] = await Promise.all([
+          getMemberStats(memberId),
+          getActivityHistory(memberId),
+        ]);
+        setStats(statsData);
+        setHistory(historyData);
+        setLoading(false);
+      }
     }
+    loadMemberDetail();
   }, [memberId]);
 
   if (loading || !stats) {
