@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #f8f9fa;
+    --bg-card: #ffffff;
+    --text-primary: #111111;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --border-color: #e5e7eb;
+    --border-subtle: #f3f4f6;
+    
+    --accent-emerald: #059669;
+    --accent-emerald-light: #ecfdf5;
+    --accent-emerald-border: #a7f3d0;
+
+    --status-jamaah: #047857;
+    --status-jamaah-bg: #d1fae5;
+    --status-yes: #059669;
+    --status-yes-bg: #ecfdf5;
+    --status-delayed: #d97706;
+    --status-delayed-bg: #fffbe completed-bg;
+    --status-no: #dc2626;
+    --status-no-bg: #fef2f2;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom UI utilities for Apple-like clean UI */
+.bg-surface {
+  background-color: #ffffff;
+}
+
+.bg-page {
+  background-color: #f8f9fa;
+}
+
+.border-subtle {
+  border-color: #e5e7eb;
+}
+
+.card-shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px 0 rgba(0, 0, 0, 0.02);
+}
+
+.card-shadow-hover {
+  transition: all 0.2s ease;
+}
+
+.card-shadow-hover:hover {
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
